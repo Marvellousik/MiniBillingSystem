@@ -1,0 +1,79 @@
+name: CI & E2E Reliability Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build .NET Solution
+        run: dotnet build --configuration Release
+
+      - name: Build Frontend SPA
+        run: |
+          cd ClientApp
+          npm ci
+          npm run build
+
+      - name: Start Full Stack via Docker Compose
+        run: docker compose up -d --build
+
+      - name: Wait for Stack Healthiness
+        run: |
+          echo "Waiting for all services to become healthy..."
+          timeout 120s bash -c '
+            until [ "$(docker inspect --format="{{.State.Health.Status}}" minibilling-backend)" == "healthy" ] && \
+                  [ "$(docker inspect --format="{{.State.Health.Status}}" minibilling-frontend)" == "healthy" ]; do
+              echo "Waiting for backend & frontend healthchecks..."
+              sleep 2
+            done
+          '
+          echo "All services are healthy!"
+          docker compose ps
+
+      - name: Install Playwright & Dependencies
+        run: |
+          cd tests/e2e
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E Tests
+        run: |
+          cd tests/e2e
+          npx playwright test
+
+      - name: Run Backend Integration Tests
+        run: dotnet test tests/MiniBillingSystem.IntegrationTests/MiniBillingSystem.IntegrationTests.csproj --configuration Release
+
+      - name: Upload Docker Logs on Failure
+        if: failure()
+        run: |
+          mkdir -p logs
+          docker compose logs > logs/docker-compose.log
+
+      - name: Upload Test Reports & Artifacts on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-artifacts
+          path: |
+            playwright-report/
+            logs/

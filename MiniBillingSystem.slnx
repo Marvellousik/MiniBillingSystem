@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/MiniBillingSystem.IntegrationTests/MiniBillingSystem.IntegrationTests.csproj" />
+  </Folder>
+  <Project Path="MiniBillingSystem.csproj" />
+</Solution>
