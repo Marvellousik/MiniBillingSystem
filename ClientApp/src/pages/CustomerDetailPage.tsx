@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { CustomerDetail } from '../types';
 import { formatCurrency, formatDate } from '../utils';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Pencil, Trash2 } from 'lucide-react';
+import { EditCustomerModal } from '../components/EditCustomerModal';
 
 interface CustomerDetailPageProps {
   customerId: number;
@@ -16,6 +17,8 @@ export const CustomerDetailPage: React.FC<CustomerDetailPageProps> = ({
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchDetail = async () => {
     setLoading(true);
@@ -27,6 +30,23 @@ export const CustomerDetailPage: React.FC<CustomerDetailPageProps> = ({
       setError(err.message || "Sorry, we ran into an issue pulling up this customer's dashboard.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteCustomer = async () => {
+    if (!detail) return;
+    if (!window.confirm(`Are you sure you want to delete customer '${detail.fullName}' (#${detail.customerID})?`)) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deleteCustomer(detail.customerID);
+      onBack();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete customer.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -64,7 +84,7 @@ export const CustomerDetailPage: React.FC<CustomerDetailPageProps> = ({
 
       {/* Profile Card */}
       <div className="card" style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h2 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>
               {detail.fullName}
@@ -73,6 +93,24 @@ export const CustomerDetailPage: React.FC<CustomerDetailPageProps> = ({
               Customer ID: #{detail.customerID}
             </p>
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowEditModal(true)}
+            >
+              <Pencil style={{ width: 14, height: 14, marginRight: 4 }} /> Edit Details
+            </button>
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={handleDeleteCustomer}
+              disabled={deleting}
+              style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 4, cursor: 'pointer' }}
+            >
+              <Trash2 style={{ width: 14, height: 14, marginRight: 4 }} /> {deleting ? 'Deleting...' : 'Delete Customer'}
+            </button>
+          </div>
+
           <div style={{ display: 'flex', gap: 16 }}>
             <div style={{ textAlign: 'right' }}>
               <div className="card-label">Account Credit</div>
@@ -104,6 +142,14 @@ export const CustomerDetailPage: React.FC<CustomerDetailPageProps> = ({
           </div>
         </div>
       </div>
+
+      {showEditModal && (
+        <EditCustomerModal
+          customer={detail}
+          onClose={() => setShowEditModal(false)}
+          onSuccess={fetchDetail}
+        />
+      )}
 
       {/* Stacked Tables */}
       {/* 1. Billing History */}

@@ -5,6 +5,7 @@ import type {
   Payment, 
   Summary, 
   CreateCustomerPayload, 
+  UpdateCustomerPayload,
   CreateBillPayload, 
   BillResult, 
   RecordPaymentPayload, 
@@ -27,8 +28,8 @@ export const api = {
   getSummary: (): Promise<Summary> => 
     fetch(`${API_BASE}/summary`).then(handleResponse<Summary>),
 
-  getCustomers: (page = 1, pageSize = 50): Promise<PaginatedResponse<Customer>> => 
-    fetch(`${API_BASE}/customers?page=${page}&pageSize=${pageSize}`).then(handleResponse<PaginatedResponse<Customer>>),
+  getCustomers: (page = 1, pageSize = 50, sortBy = 'recent_created'): Promise<PaginatedResponse<Customer>> => 
+    fetch(`${API_BASE}/customers?page=${page}&pageSize=${pageSize}&sortBy=${sortBy}`).then(handleResponse<PaginatedResponse<Customer>>),
 
   getCustomerById: (id: number): Promise<CustomerDetail> => 
     fetch(`${API_BASE}/customers/${id}`).then(handleResponse<CustomerDetail>),
@@ -40,8 +41,20 @@ export const api = {
       body: JSON.stringify(payload)
     }).then(handleResponse<{ message: string; customerID: number }>),
 
-  getBills: (page = 1, pageSize = 50): Promise<PaginatedResponse<Bill>> => 
-    fetch(`${API_BASE}/bills?page=${page}&pageSize=${pageSize}`).then(handleResponse<PaginatedResponse<Bill>>),
+  updateCustomer: (id: number, payload: UpdateCustomerPayload): Promise<{ message: string }> =>
+    fetch(`${API_BASE}/customers/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(handleResponse<{ message: string }>),
+
+  deleteCustomer: (id: number): Promise<{ message: string }> =>
+    fetch(`${API_BASE}/customers/${id}`, {
+      method: 'DELETE'
+    }).then(handleResponse<{ message: string }>),
+
+  getBills: (page = 1, pageSize = 50, sortBy = 'recent_created'): Promise<PaginatedResponse<Bill>> => 
+    fetch(`${API_BASE}/bills?page=${page}&pageSize=${pageSize}&sortBy=${sortBy}`).then(handleResponse<PaginatedResponse<Bill>>),
 
   generateBill: (payload: CreateBillPayload): Promise<BillResult> => 
     fetch(`${API_BASE}/bills`, {

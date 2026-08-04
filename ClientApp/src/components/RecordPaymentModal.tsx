@@ -88,7 +88,7 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label className="form-label">Amount Paid ($)</label>
+              <label className="form-label">Amount Paid (₦)</label>
               <input
                 type="number"
                 step="0.01"

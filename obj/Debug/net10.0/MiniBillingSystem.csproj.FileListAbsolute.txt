@@ -67,7 +67,8 @@ C:\Users\Agada Bartholomew\MiniBillingSystem\bin\Debug\net10.0\ClientApp\tsconfi
 C:\Users\Agada Bartholomew\MiniBillingSystem\bin\Debug\net10.0\ClientApp\tsconfig.node.json
 C:\Users\Agada Bartholomew\MiniBillingSystem\bin\Debug\net10.0\MiniBillingSystem.staticwebassets.runtime.json
 C:\Users\Agada Bartholomew\MiniBillingSystem\obj\Debug\net10.0\compressed\mefn27v684-{0}-g4lm88lalc-g4lm88lalc.gz
-C:\Users\Agada Bartholomew\MiniBillingSystem\obj\Debug\net10.0\compressed\m614e8ggvy-{0}-zlj73i8jeo-zlj73i8jeo.gz
 C:\Users\Agada Bartholomew\MiniBillingSystem\obj\Debug\net10.0\compressed\nn6clwj26d-{0}-180dmtdpho-180dmtdpho.gz
 C:\Users\Agada Bartholomew\MiniBillingSystem\obj\Debug\net10.0\compressed\qzvclf2ef5-{0}-g3h7a9wx5y-g3h7a9wx5y.gz
-C:\Users\Agada Bartholomew\MiniBillingSystem\obj\Debug\net10.0\compressed\q37r2xjtmg-{0}-t5vq7x37ie-t5vq7x37ie.gz
+C:\Users\Agada Bartholomew\MiniBillingSystem\obj\Debug\net10.0\MiniBillingSystem.sourcelink.json
+C:\Users\Agada Bartholomew\MiniBillingSystem\obj\Debug\net10.0\compressed\5zmrxuha3u-{0}-72gvpopved-72gvpopved.gz
+C:\Users\Agada Bartholomew\MiniBillingSystem\obj\Debug\net10.0\compressed\q37r2xjtmg-{0}-65nol441sr-65nol441sr.gz

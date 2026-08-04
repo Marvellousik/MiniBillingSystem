@@ -1,3 +1,11 @@
+using MiniBillingSystem;
+
+if (args.Length > 0 && (args[0] == "--console" || args[0] == "--cli"))
+{
+    ConsoleMenu.Run(args);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.

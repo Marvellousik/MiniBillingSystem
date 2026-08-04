@@ -56,5 +56,31 @@ namespace MiniBillingSystem.IntegrationTests
             // Assert
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
+
+        [Fact]
+        public async Task UpdateCustomer_WithEmptyName_ReturnsBadRequest()
+        {
+            // Act
+            var response = await _client.PutAsJsonAsync("/api/customers/1", new
+            {
+                FullName = "",
+                Address = "Updated Address",
+                PhoneNumber = "08012345678",
+                Email = "updated@example.com"
+            });
+
+            // Assert
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task DeleteCustomer_NonExistentCustomer_ReturnsNotFoundOrInternalServerError()
+        {
+            // Act
+            var response = await _client.DeleteAsync("/api/customers/999999");
+
+            // Assert - Should return NotFound (404) or InternalServerError (500 if DB unreachable)
+            Assert.True(response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.InternalServerError);
+        }
     }
 }

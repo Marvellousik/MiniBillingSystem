@@ -17,7 +17,7 @@ namespace MiniBillingSystem.Controllers
         }
 
         [HttpGet]
-        public IActionResult GetBills([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+        public IActionResult GetBills([FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string sortBy = "recent_created")
         {
             if (page < 1) page = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 50;
@@ -27,11 +27,19 @@ namespace MiniBillingSystem.Controllers
             int totalCount = 0;
 
             string countSql = "SELECT COUNT(*) FROM Bills";
-            string sql = @"
-                SELECT b.BillID, b.CustomerID, c.FullName, b.AmountDue, b.DueDate, b.IsPaid 
+
+            string orderByClause = sortBy?.ToLower() switch
+            {
+                "recent_activity" => "ORDER BY ISNULL((SELECT MAX(p.PaymentDate) FROM Payments p WHERE p.BillID = b.BillID), CAST(b.DueDate AS DATETIME)) DESC, b.BillID DESC",
+                "due_date" => "ORDER BY b.DueDate ASC, b.BillID DESC",
+                _ => "ORDER BY b.BillID DESC"
+            };
+
+            string sql = $@"
+                SELECT b.BillID, b.CustomerID, c.FullName, b.Amount, b.AmountDue, b.DueDate, b.IsPaid, b.Status 
                 FROM Bills b 
                 JOIN Customers c ON b.CustomerID = c.CustomerID
-                ORDER BY b.BillID DESC OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
+                {orderByClause} OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
 
             try
             {
@@ -61,7 +69,7 @@ namespace MiniBillingSystem.Controllers
                     });
                 }
 
-                return Ok(new { data = bills, page, pageSize, totalCount });
+                return Ok(new { data = bills, page, pageSize, totalCount, sortBy });
             }
             catch
             {
@@ -93,7 +101,7 @@ namespace MiniBillingSystem.Controllers
             }
 
             string formattedDueDate = validDueDate.ToString("yyyy-MM-dd");
-            decimal billAmount = request.AmountDue;
+            decimal billAmount = request.AmountDue; // Amount parameter represents original total bill
 
             using var conn = new SqlConnection(_connStr);
             conn.Open();
@@ -117,6 +125,7 @@ namespace MiniBillingSystem.Controllers
                 decimal accountBalance = Convert.ToDecimal(result);
                 decimal finalAmountDue = billAmount;
                 int isPaid = 0;
+                string status = "Unpaid";
                 string outcomeMsg = "";
                 string outcomeType = "";
 
@@ -124,6 +133,7 @@ namespace MiniBillingSystem.Controllers
                 {
                     finalAmountDue = 0;
                     isPaid = 1;
+                    status = "Paid";
 
                     SqlCommand deductCmd = new SqlCommand(
                         "UPDATE Customers SET AccountBalance = AccountBalance - @BillAmount WHERE CustomerID = @CustID", 
@@ -134,12 +144,13 @@ namespace MiniBillingSystem.Controllers
                     deductCmd.ExecuteNonQuery();
 
                     outcomeType = "FULLY_COVERED";
-                    outcomeMsg = $"Great news! The customer had enough credit (${accountBalance:0.00}) to cover this. The bill was generated and is already marked as paid.";
+                    outcomeMsg = $"Great news! The customer had enough credit (₦{accountBalance:N2}) to cover this. The bill was generated and is already marked as paid.";
                 }
                 else if (accountBalance > 0)
                 {
                     finalAmountDue = billAmount - accountBalance;
                     isPaid = 0;
+                    status = "PartiallyPaid";
 
                     SqlCommand drainCmd = new SqlCommand(
                         "UPDATE Customers SET AccountBalance = 0 WHERE CustomerID = @CustID", 
@@ -149,24 +160,28 @@ namespace MiniBillingSystem.Controllers
                     drainCmd.ExecuteNonQuery();
 
                     outcomeType = "PARTIALLY_COVERED";
-                    outcomeMsg = $"We applied the customer's available credit (${accountBalance:0.00}). The new remaining bill amount is ${finalAmountDue:0.00}.";
+                    outcomeMsg = $"We applied the customer's available credit (₦{accountBalance:N2}). The new remaining bill amount is ₦{finalAmountDue:N2}.";
                 }
                 else
                 {
                     finalAmountDue = billAmount;
                     isPaid = 0;
+                    status = "Unpaid";
                     outcomeType = "NO_CREDIT_APPLIED";
                     outcomeMsg = "Bill successfully generated!";
                 }
 
                 SqlCommand insertBillCmd = new SqlCommand(
-                    "INSERT INTO Bills (CustomerID, AmountDue, DueDate, IsPaid) VALUES (@CustID, @Amount, @DueDate, @IsPaid)", 
+                    @"INSERT INTO Bills (CustomerID, Amount, AmountDue, DueDate, IsPaid, Status) 
+                      VALUES (@CustID, @OriginalAmount, @AmountDue, @DueDate, @IsPaid, @Status)", 
                     conn, 
                     transaction);
                 insertBillCmd.Parameters.AddWithValue("@CustID", request.CustomerID);
-                insertBillCmd.Parameters.AddWithValue("@Amount", finalAmountDue);
+                insertBillCmd.Parameters.AddWithValue("@OriginalAmount", billAmount);
+                insertBillCmd.Parameters.AddWithValue("@AmountDue", finalAmountDue);
                 insertBillCmd.Parameters.AddWithValue("@DueDate", formattedDueDate);
                 insertBillCmd.Parameters.AddWithValue("@IsPaid", isPaid);
+                insertBillCmd.Parameters.AddWithValue("@Status", status);
                 insertBillCmd.ExecuteNonQuery();
 
                 transaction.Commit();

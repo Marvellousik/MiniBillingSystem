@@ -50,6 +50,13 @@ export interface CreateCustomerPayload {
   email: string;
 }
 
+export interface UpdateCustomerPayload {
+  fullName: string;
+  address: string;
+  phoneNumber: string;
+  email: string;
+}
+
 export interface CreateBillPayload {
   customerID: number;
   amountDue: number;

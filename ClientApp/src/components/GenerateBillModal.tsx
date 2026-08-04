@@ -90,7 +90,7 @@ export const GenerateBillModal: React.FC<GenerateBillModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label className="form-label">Amount Due ($)</label>
+              <label className="form-label">Amount Due (₦)</label>
               <input
                 type="number"
                 step="0.01"

@@ -59,7 +59,7 @@ namespace MiniBillingSystem.Controllers
                         BillID = Convert.ToInt32(reader["BillID"]),
                         AmountPaid = Convert.ToDecimal(reader["AmountPaid"]),
                         PaymentMethod = reader["PaymentMethod"].ToString() ?? "",
-                        PaymentDate = Convert.ToDateTime(reader["PaymentDate"]).ToString("yyyy-MM-dd")
+                        PaymentDate = Convert.ToDateTime(reader["PaymentDate"]).ToString("yyyy-MM-dd HH:mm")
                     });
                 }
 
@@ -132,6 +132,7 @@ namespace MiniBillingSystem.Controllers
                     return BadRequest(new { error = "Good news! This bill has already been fully paid." });
                 }
 
+                // Record initial payment entry
                 SqlCommand insertCmd = new SqlCommand(
                     "INSERT INTO Payments (BillID, AmountPaid, PaymentMethod) VALUES (@BillID, @Amount, @Method)", 
                     conn, 
@@ -148,7 +149,7 @@ namespace MiniBillingSystem.Controllers
                 if (request.AmountPaid >= amountDue)
                 {
                     SqlCommand updateBillCmd = new SqlCommand(
-                        "UPDATE Bills SET IsPaid = 1, AmountDue = 0 WHERE BillID = @BillID", 
+                        "UPDATE Bills SET IsPaid = 1, AmountDue = 0, Status = 'Paid' WHERE BillID = @BillID", 
                         conn, 
                         transaction);
                     updateBillCmd.Parameters.AddWithValue("@BillID", request.BillID);
@@ -166,7 +167,7 @@ namespace MiniBillingSystem.Controllers
                         creditCmd.ExecuteNonQuery();
 
                         outcomeType = "OVERPAYMENT";
-                        outcomeMsg = $"Payment successful! The bill is fully paid. The extra ${overpayment:0.00} has been credited to the customer's account.";
+                        outcomeMsg = $"Payment successful! The target bill is fully paid. Overpayment of ₦{overpayment:N2} was processed.";
                     }
                     else
                     {
@@ -179,7 +180,7 @@ namespace MiniBillingSystem.Controllers
                 {
                     remainingBalance = amountDue - request.AmountPaid;
                     SqlCommand updatePartialCmd = new SqlCommand(
-                        "UPDATE Bills SET AmountDue = @Remaining WHERE BillID = @BillID", 
+                        "UPDATE Bills SET AmountDue = @Remaining, IsPaid = 0, Status = 'PartiallyPaid' WHERE BillID = @BillID", 
                         conn, 
                         transaction);
                     updatePartialCmd.Parameters.AddWithValue("@Remaining", remainingBalance);
@@ -187,7 +188,15 @@ namespace MiniBillingSystem.Controllers
                     updatePartialCmd.ExecuteNonQuery();
 
                     outcomeType = "PARTIAL_PAYMENT";
-                    outcomeMsg = $"Partial payment accepted. The customer still owes ${remainingBalance:0.00} on this bill.";
+                    outcomeMsg = $"Partial payment accepted. The customer still owes ₦{remainingBalance:N2} on this bill.";
+                }
+
+                // Automatic Reconciliation: Apply any available customer credit against other unpaid bills
+                int autoSettledCount = ReconcileCustomerCreditAndBills(customerId, conn, transaction);
+
+                if (autoSettledCount > 0)
+                {
+                    outcomeMsg += $" Automatic reconciliation applied available credit to settle {autoSettledCount} other pending bill(s).";
                 }
 
                 transaction.Commit();
@@ -199,11 +208,106 @@ namespace MiniBillingSystem.Controllers
                     RemainingAmountDue = remainingBalance
                 });
             }
-            catch
+            catch (Exception ex)
             {
                 transaction.Rollback();
-                return StatusCode(500, new { error = "Sorry, the payment failed to process. No money was recorded. Please try again." });
+                return StatusCode(500, new { error = "Sorry, the payment failed to process: " + ex.Message });
             }
+        }
+
+        /// <summary>
+        /// Automatically reconciles available customer account credit against any outstanding unpaid bills.
+        /// </summary>
+        public static int ReconcileCustomerCreditAndBills(int customerId, SqlConnection conn, SqlTransaction transaction)
+        {
+            int autoSettledCount = 0;
+
+            // 1. Get current AccountBalance for Customer
+            SqlCommand balanceCmd = new SqlCommand(
+                "SELECT AccountBalance FROM Customers WITH (UPDLOCK) WHERE CustomerID = @CustID", 
+                conn, 
+                transaction);
+            balanceCmd.Parameters.AddWithValue("@CustID", customerId);
+            object? res = balanceCmd.ExecuteScalar();
+
+            if (res == null || res == DBNull.Value) return 0;
+            decimal credit = Convert.ToDecimal(res);
+            if (credit <= 0) return 0;
+
+            // 2. Fetch all unpaid bills for this customer ordered by DueDate ASC, BillID ASC
+            string unpaidBillsSql = @"
+                SELECT BillID, AmountDue FROM Bills WITH (UPDLOCK) 
+                WHERE CustomerID = @CustID AND IsPaid = 0 
+                ORDER BY DueDate ASC, BillID ASC";
+
+            var unpaidBills = new List<(int BillID, decimal AmountDue)>();
+            using (var billsCmd = new SqlCommand(unpaidBillsSql, conn, transaction))
+            {
+                billsCmd.Parameters.AddWithValue("@CustID", customerId);
+                using var reader = billsCmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    unpaidBills.Add((Convert.ToInt32(reader["BillID"]), Convert.ToDecimal(reader["AmountDue"])));
+                }
+            }
+
+            // 3. Process unpaid bills using available credit
+            foreach (var bill in unpaidBills)
+            {
+                if (credit <= 0) break;
+
+                decimal appliedAmount = 0;
+                if (credit >= bill.AmountDue)
+                {
+                    appliedAmount = bill.AmountDue;
+                    credit -= appliedAmount;
+
+                    // Mark bill fully paid
+                    SqlCommand payBillCmd = new SqlCommand(
+                        "UPDATE Bills SET IsPaid = 1, AmountDue = 0, Status = 'Paid' WHERE BillID = @BillID", 
+                        conn, 
+                        transaction);
+                    payBillCmd.Parameters.AddWithValue("@BillID", bill.BillID);
+                    payBillCmd.ExecuteNonQuery();
+
+                    autoSettledCount++;
+                }
+                else
+                {
+                    appliedAmount = credit;
+                    decimal newRemaining = bill.AmountDue - credit;
+                    credit = 0;
+
+                    // Update partial bill balance
+                    SqlCommand partialCmd = new SqlCommand(
+                        "UPDATE Bills SET AmountDue = @NewRemaining, IsPaid = 0, Status = 'PartiallyPaid' WHERE BillID = @BillID", 
+                        conn, 
+                        transaction);
+                    partialCmd.Parameters.AddWithValue("@NewRemaining", newRemaining);
+                    partialCmd.Parameters.AddWithValue("@BillID", bill.BillID);
+                    partialCmd.ExecuteNonQuery();
+                }
+
+                // Record auto-reconciliation payment entry
+                SqlCommand autoPayCmd = new SqlCommand(
+                    "INSERT INTO Payments (BillID, AmountPaid, PaymentMethod) VALUES (@BillID, @Amount, 'Account Credit Auto-Reconciliation')", 
+                    conn, 
+                    transaction);
+                autoPayCmd.Parameters.AddWithValue("@BillID", bill.BillID);
+                autoPayCmd.Parameters.AddWithValue("@Amount", appliedAmount);
+                autoPayCmd.ExecuteNonQuery();
+            }
+
+            // 4. Update final customer AccountBalance
+            SqlCommand updateCustCmd = new SqlCommand(
+                "UPDATE Customers SET AccountBalance = @FinalCredit WHERE CustomerID = @CustID", 
+                conn, 
+                transaction);
+            updateCustCmd.Parameters.AddWithValue("@FinalCredit", credit);
+            updateCustCmd.Parameters.AddWithValue("@CustID", customerId);
+            updateCustCmd.ExecuteNonQuery();
+
+            return autoSettledCount;
         }
     }
 }

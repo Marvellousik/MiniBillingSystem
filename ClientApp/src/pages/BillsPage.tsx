@@ -17,15 +17,16 @@ export const BillsPage: React.FC<BillsPageProps> = ({
   const [bills, setBills] = useState<Bill[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(50);
+  const [sortBy, setSortBy] = useState('recent_created');
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchBills = async (currentPage: number) => {
+  const fetchBills = async (currentPage: number, currentSort: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.getBills(currentPage, pageSize);
+      const res = await api.getBills(currentPage, pageSize, currentSort);
       setBills(res.data);
       setTotalCount(res.totalCount);
     } catch (err: any) {
@@ -36,8 +37,8 @@ export const BillsPage: React.FC<BillsPageProps> = ({
   };
 
   useEffect(() => {
-    fetchBills(page);
-  }, [page, outcomeBanner]);
+    fetchBills(page, sortBy);
+  }, [page, sortBy, outcomeBanner]);
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
@@ -68,9 +69,30 @@ export const BillsPage: React.FC<BillsPageProps> = ({
       {error && <div className="alert-box alert-error">{error}</div>}
 
       <div className="table-card">
-        <div className="table-header">
-          <h3 className="table-title">Billing Registry</h3>
-          <span className="pagination-info">Total Bills: {totalCount}</span>
+        <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 className="table-title">Billing Registry</h3>
+            <span className="pagination-info">Total Bills: {totalCount}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label htmlFor="billSortSelect" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Sort By:
+            </label>
+            <select
+              id="billSortSelect"
+              className="form-control"
+              style={{ width: 'auto', padding: '4px 10px', fontSize: '0.85rem' }}
+              value={sortBy}
+              onChange={(e) => {
+                setSortBy(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="recent_created">Most Recent Created</option>
+              <option value="recent_activity">Most Recent Activity</option>
+              <option value="due_date">Due Date (Earliest First)</option>
+            </select>
+          </div>
         </div>
 
         <table className="data-table">

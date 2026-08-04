@@ -17,7 +17,7 @@ namespace MiniBillingSystem.Controllers
         }
 
         [HttpGet]
-        public IActionResult GetCustomers([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+        public IActionResult GetCustomers([FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string sortBy = "recent_created")
         {
             if (page < 1) page = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 50;
@@ -27,12 +27,21 @@ namespace MiniBillingSystem.Controllers
             int totalCount = 0;
 
             string countSql = "SELECT COUNT(*) FROM Customers";
-            string sql = @"
+
+            string orderByClause = sortBy?.ToLower() switch
+            {
+                "recent_activity" => "ORDER BY COALESCE(MAX(p.PaymentDate), CAST(MAX(b.DueDate) AS DATETIME), '1970-01-01') DESC, c.CustomerID DESC",
+                "name" => "ORDER BY c.FullName ASC, c.CustomerID DESC",
+                _ => "ORDER BY c.CustomerID DESC"
+            };
+
+            string sql = $@"
                 SELECT c.CustomerID, c.FullName, c.AccountBalance AS Credit, ISNULL(SUM(b.AmountDue), 0) AS TotalOwed
                 FROM Customers c
                 LEFT JOIN Bills b ON c.CustomerID = b.CustomerID AND b.IsPaid = 0
+                LEFT JOIN Payments p ON b.BillID = p.BillID
                 GROUP BY c.CustomerID, c.FullName, c.AccountBalance
-                ORDER BY c.CustomerID OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
+                {orderByClause} OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
 
             try
             {
@@ -60,7 +69,7 @@ namespace MiniBillingSystem.Controllers
                     });
                 }
 
-                return Ok(new { data = customers, page, pageSize, totalCount });
+                return Ok(new { data = customers, page, pageSize, totalCount, sortBy });
             }
             catch
             {
@@ -215,6 +224,99 @@ namespace MiniBillingSystem.Controllers
             catch
             {
                 return StatusCode(500, new { error = "Sorry, we ran into an issue pulling up this customer's dashboard." });
+            }
+        }
+
+        [HttpPut("{id}")]
+        public IActionResult UpdateCustomer(int id, [FromBody] UpdateCustomerRequest request)
+        {
+            if (request == null)
+            {
+                return BadRequest(new { error = "This field cannot be left blank. Please enter a value." });
+            }
+
+            string name = (request.FullName ?? "").Trim();
+            string address = (request.Address ?? "").Trim();
+            string phone = (request.PhoneNumber ?? "").Trim();
+            string email = (request.Email ?? "").Trim();
+
+            if (string.IsNullOrEmpty(name))
+                return BadRequest(new { error = "Full Name cannot be left blank. Please enter a value." });
+            if (name.Length > 100)
+                return BadRequest(new { error = "Full Name is a bit too long! Please shorten it to 100 characters or less." });
+
+            if (string.IsNullOrEmpty(address))
+                return BadRequest(new { error = "Address cannot be left blank. Please enter a value." });
+            if (address.Length > 255)
+                return BadRequest(new { error = "Address is a bit too long! Please shorten it to 255 characters or less." });
+
+            if (string.IsNullOrEmpty(phone))
+                return BadRequest(new { error = "Phone Number cannot be left blank. Please enter a value." });
+            if (phone.Length > 20)
+                return BadRequest(new { error = "Phone Number is a bit too long! Please shorten it to 20 characters or less." });
+
+            if (string.IsNullOrEmpty(email))
+                return BadRequest(new { error = "Email cannot be left blank. Please enter a value." });
+            if (email.Length > 100)
+                return BadRequest(new { error = "Email is a bit too long! Please shorten it to 100 characters or less." });
+
+            try
+            {
+                using var conn = new SqlConnection(_connStr);
+                conn.Open();
+                using var cmd = new SqlCommand("usp_UpdateCustomer", conn);
+                cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                cmd.Parameters.AddWithValue("@CustomerID", id);
+                cmd.Parameters.AddWithValue("@FullName", name);
+                cmd.Parameters.AddWithValue("@Address", address);
+                cmd.Parameters.AddWithValue("@PhoneNumber", phone);
+                cmd.Parameters.AddWithValue("@Email", email);
+
+                int rows = cmd.ExecuteNonQuery();
+                if (rows == 0)
+                {
+                    return NotFound(new { error = $"We couldn't find a customer with ID '{id}' to update." });
+                }
+
+                return Ok(new { message = "Customer details successfully updated." });
+            }
+            catch (SqlException ex)
+            {
+                return StatusCode(500, new { error = "Oops! Something went wrong updating the customer: " + ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Oops! Something went wrong updating the customer: " + ex.Message });
+            }
+        }
+
+        [HttpDelete("{id}")]
+        public IActionResult DeleteCustomer(int id)
+        {
+            try
+            {
+                using var conn = new SqlConnection(_connStr);
+                conn.Open();
+                using var cmd = new SqlCommand("usp_DeleteCustomer", conn);
+                cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                cmd.Parameters.AddWithValue("@CustomerID", id);
+
+                int rows = cmd.ExecuteNonQuery();
+                if (rows == 0)
+                {
+                    return NotFound(new { error = $"We couldn't find a customer with ID '{id}' to delete." });
+                }
+
+                return Ok(new { message = "Customer successfully deleted." });
+            }
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                // Foreign key constraint violation error 547
+                return BadRequest(new { error = "Cannot delete customer because they have existing bills or payment records. Delete or settle their bills first." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Oops! Something went wrong deleting the customer: " + ex.Message });
             }
         }
     }

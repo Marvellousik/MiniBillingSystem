@@ -455,3 +455,4 @@ C:\Users\Agada Bartholomew\MiniBillingSystem\tests\MiniBillingSystem.Integration
 C:\Users\Agada Bartholomew\MiniBillingSystem\tests\MiniBillingSystem.IntegrationTests\obj\Debug\net10.0\MiniBillingSystem.IntegrationTests.pdb
 C:\Users\Agada Bartholomew\MiniBillingSystem\tests\MiniBillingSystem.IntegrationTests\obj\Debug\net10.0\MiniBillingSystem.IntegrationTests.genruntimeconfig.cache
 C:\Users\Agada Bartholomew\MiniBillingSystem\tests\MiniBillingSystem.IntegrationTests\obj\Debug\net10.0\ref\MiniBillingSystem.IntegrationTests.dll
+C:\Users\Agada Bartholomew\MiniBillingSystem\tests\MiniBillingSystem.IntegrationTests\obj\Debug\net10.0\MiniBillingSystem.IntegrationTests.sourcelink.json

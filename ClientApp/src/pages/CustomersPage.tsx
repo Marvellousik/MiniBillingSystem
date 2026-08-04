@@ -11,15 +11,16 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ onSelectCustomer }
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(50);
+  const [sortBy, setSortBy] = useState('recent_created');
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchCustomers = async (currentPage: number) => {
+  const fetchCustomers = async (currentPage: number, currentSort: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.getCustomers(currentPage, pageSize);
+      const res = await api.getCustomers(currentPage, pageSize, currentSort);
       setCustomers(res.data);
       setTotalCount(res.totalCount);
     } catch (err: any) {
@@ -30,8 +31,8 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ onSelectCustomer }
   };
 
   useEffect(() => {
-    fetchCustomers(page);
-  }, [page]);
+    fetchCustomers(page, sortBy);
+  }, [page, sortBy]);
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
@@ -40,9 +41,30 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ onSelectCustomer }
       {error && <div className="alert-box alert-error">{error}</div>}
 
       <div className="table-card">
-        <div className="table-header">
-          <h3 className="table-title">Customer Registry</h3>
-          <span className="pagination-info">Total Accounts: {totalCount}</span>
+        <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 className="table-title">Customer Registry</h3>
+            <span className="pagination-info">Total Accounts: {totalCount}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label htmlFor="custSortSelect" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Sort By:
+            </label>
+            <select
+              id="custSortSelect"
+              className="form-control"
+              style={{ width: 'auto', padding: '4px 10px', fontSize: '0.85rem' }}
+              value={sortBy}
+              onChange={(e) => {
+                setSortBy(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="recent_created">Most Recent Created</option>
+              <option value="recent_activity">Most Recent Activity</option>
+              <option value="name">Alphabetical (A-Z)</option>
+            </select>
+          </div>
         </div>
         
         <table className="data-table">
