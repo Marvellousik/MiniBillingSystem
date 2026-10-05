@@ -3,15 +3,14 @@ using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Linq;
-using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 
 namespace MiniBillingSystem
 {
     public static class ConsoleMenu
     {
-        public static string ConnStr { get; set; } = 
-            "Server=.\\SQLEXPRESS;Database=InternBillingDB;Integrated Security=True;TrustServerCertificate=True;";
+        public static string ConnStr { get; set; } = "Data Source=billing.db;Cache=Shared";
 
         public static void Initialize(IConfiguration configuration)
         {
@@ -20,6 +19,7 @@ namespace MiniBillingSystem
             {
                 ConnStr = configConn;
             }
+            DbInitializer.Initialize(ConnStr);
         }
 
         public static void LogError(string context, Exception ex)
@@ -41,13 +41,13 @@ namespace MiniBillingSystem
             var customers = new List<Models.Customer>();
             try
             {
-                using (SqlConnection conn = new SqlConnection(ConnStr))
+                DbInitializer.Initialize(ConnStr);
+                using (SqliteConnection conn = new SqliteConnection(ConnStr))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("usp_GetAllCustomers", conn))
+                    using (SqliteCommand cmd = new SqliteCommand("SELECT CustomerID, FullName, Address, PhoneNumber, Email FROM Customers", conn))
                     {
-                        cmd.CommandType = CommandType.StoredProcedure;
-                        using (SqlDataReader reader = cmd.ExecuteReader())
+                        using (SqliteDataReader reader = cmd.ExecuteReader())
                         {
                             while (reader.Read())
                             {
@@ -70,7 +70,7 @@ namespace MiniBillingSystem
             return customers;
         }
 
-        private static bool HasColumn(this SqlDataReader reader, string columnName)
+        private static bool HasColumn(this SqliteDataReader reader, string columnName)
         {
             for (int i = 0; i < reader.FieldCount; i++)
             {
@@ -125,12 +125,12 @@ namespace MiniBillingSystem
 
             try
             {
-                using (SqlConnection conn = new SqlConnection(ConnStr))
+                DbInitializer.Initialize(ConnStr);
+                using (SqliteConnection conn = new SqliteConnection(ConnStr))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("usp_AddCustomer", conn))
+                    using (SqliteCommand cmd = new SqliteCommand("INSERT INTO Customers (FullName, Address, PhoneNumber, Email) VALUES (@FullName, @Address, @PhoneNumber, @Email)", conn))
                     {
-                        cmd.CommandType = CommandType.StoredProcedure;
                         cmd.Parameters.AddWithValue("@FullName", name ?? "");
                         cmd.Parameters.AddWithValue("@Address", address ?? "");
                         cmd.Parameters.AddWithValue("@PhoneNumber", phone ?? "");
@@ -162,12 +162,12 @@ namespace MiniBillingSystem
 
             try
             {
-                using (SqlConnection conn = new SqlConnection(ConnStr))
+                DbInitializer.Initialize(ConnStr);
+                using (SqliteConnection conn = new SqliteConnection(ConnStr))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("usp_UpdateCustomer", conn))
+                    using (SqliteCommand cmd = new SqliteCommand("UPDATE Customers SET FullName = @FullName, Address = @Address, PhoneNumber = @PhoneNumber, Email = @Email WHERE CustomerID = @CustomerID", conn))
                     {
-                        cmd.CommandType = CommandType.StoredProcedure;
                         cmd.Parameters.AddWithValue("@CustomerID", id);
                         cmd.Parameters.AddWithValue("@FullName", name ?? "");
                         cmd.Parameters.AddWithValue("@Address", address ?? "");
@@ -196,12 +196,12 @@ namespace MiniBillingSystem
 
             try
             {
-                using (SqlConnection conn = new SqlConnection(ConnStr))
+                DbInitializer.Initialize(ConnStr);
+                using (SqliteConnection conn = new SqliteConnection(ConnStr))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("usp_DeleteCustomer", conn))
+                    using (SqliteCommand cmd = new SqliteCommand("DELETE FROM Customers WHERE CustomerID = @CustomerID", conn))
                     {
-                        cmd.CommandType = CommandType.StoredProcedure;
                         cmd.Parameters.AddWithValue("@CustomerID", id);
 
                         int rows = cmd.ExecuteNonQuery();
@@ -238,12 +238,14 @@ namespace MiniBillingSystem
 
             try
             {
-                using (SqlConnection conn = new SqlConnection(ConnStr))
+                DbInitializer.Initialize(ConnStr);
+                using (SqliteConnection conn = new SqliteConnection(ConnStr))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("usp_CreateBill", conn))
+                    using (SqliteCommand cmd = new SqliteCommand(@"
+                        INSERT INTO Bills (CustomerID, Amount, AmountDue, DueDate, IsPaid, Status) 
+                        VALUES (@CustomerID, @Amount, @Amount, @DueDate, 0, 'Unpaid')", conn))
                     {
-                        cmd.CommandType = CommandType.StoredProcedure;
                         cmd.Parameters.AddWithValue("@CustomerID", custId);
                         cmd.Parameters.AddWithValue("@Amount", amount);
                         cmd.Parameters.AddWithValue("@DueDate", dueDate.ToString("yyyy-MM-dd"));
@@ -263,13 +265,17 @@ namespace MiniBillingSystem
         {
             try
             {
-                using (SqlConnection conn = new SqlConnection(ConnStr))
+                DbInitializer.Initialize(ConnStr);
+                using (SqliteConnection conn = new SqliteConnection(ConnStr))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("usp_GetAllBillsWithCustomer", conn))
+                    using (SqliteCommand cmd = new SqliteCommand(@"
+                        SELECT b.BillID, c.FullName, b.Amount, b.AmountDue, b.DueDate, b.IsPaid, b.Status
+                        FROM Bills b
+                        JOIN Customers c ON b.CustomerID = c.CustomerID
+                        ORDER BY b.DueDate", conn))
                     {
-                        cmd.CommandType = CommandType.StoredProcedure;
-                        using (SqlDataReader reader = cmd.ExecuteReader())
+                        using (SqliteDataReader reader = cmd.ExecuteReader())
                         {
                             Console.WriteLine($"\n{"Bill ID",-8} {"Customer",-25} {"Amount",-12} {"Amount Due",-12} {"Due Date",-12} {"Status",-12}");
                             Console.WriteLine(new string('-', 85));
@@ -279,8 +285,8 @@ namespace MiniBillingSystem
                                 string name = reader["FullName"].ToString() ?? "";
                                 decimal amount = Convert.ToDecimal(reader["Amount"]);
                                 decimal due = Convert.ToDecimal(reader["AmountDue"]);
-                                string dueDate = Convert.ToDateTime(reader["DueDate"]).ToString("yyyy-MM-dd");
-                                string status = reader["Status"]?.ToString() ?? (Convert.ToBoolean(reader["IsPaid"]) ? "Paid" : "Unpaid");
+                                string dueDate = reader["DueDate"].ToString() ?? "";
+                                string status = reader["Status"]?.ToString() ?? (Convert.ToInt32(reader["IsPaid"]) == 1 ? "Paid" : "Unpaid");
 
                                 Console.WriteLine($"{billId,-8} {name,-25} ₦{amount,-11:N2} ₦{due,-11:N2} {dueDate,-12} {status,-12}");
                             }
@@ -311,16 +317,25 @@ namespace MiniBillingSystem
 
             try
             {
-                using (SqlConnection conn = new SqlConnection(ConnStr))
+                DbInitializer.Initialize(ConnStr);
+                using (SqliteConnection conn = new SqliteConnection(ConnStr))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("usp_RecordPayment", conn))
+                    using (SqliteTransaction tx = conn.BeginTransaction())
                     {
-                        cmd.CommandType = CommandType.StoredProcedure;
-                        cmd.Parameters.AddWithValue("@BillID", billId);
-                        cmd.Parameters.AddWithValue("@AmountPaid", amountPaid);
+                        using (SqliteCommand cmd = new SqliteCommand(@"
+                            INSERT INTO Payments (BillID, AmountPaid, PaymentMethod) VALUES (@BillID, @AmountPaid, 'Cash');
+                            UPDATE Bills SET AmountDue = MAX(0, AmountDue - @AmountPaid),
+                                             IsPaid = CASE WHEN AmountDue - @AmountPaid <= 0 THEN 1 ELSE 0 END,
+                                             Status = CASE WHEN AmountDue - @AmountPaid <= 0 THEN 'Paid' ELSE 'PartiallyPaid' END
+                            WHERE BillID = @BillID;", conn, tx))
+                        {
+                            cmd.Parameters.AddWithValue("@BillID", billId);
+                            cmd.Parameters.AddWithValue("@AmountPaid", amountPaid);
 
-                        cmd.ExecuteNonQuery();
+                            cmd.ExecuteNonQuery();
+                        }
+                        tx.Commit();
                         Console.WriteLine("Payment recorded successfully.");
                     }
                 }
@@ -335,13 +350,20 @@ namespace MiniBillingSystem
         {
             try
             {
-                using (SqlConnection conn = new SqlConnection(ConnStr))
+                DbInitializer.Initialize(ConnStr);
+                using (SqliteConnection conn = new SqliteConnection(ConnStr))
                 {
                     conn.Open();
-                    using (SqlCommand cmd = new SqlCommand("usp_GetSummaryReport", conn))
+                    using (SqliteCommand cmd = new SqliteCommand(@"
+                        SELECT
+                            (SELECT COUNT(*) FROM Customers) AS TotalCustomers,
+                            (SELECT COUNT(*) FROM Bills) AS TotalBills,
+                            (SELECT COUNT(*) FROM Bills WHERE IsPaid = 0) AS UnpaidBills,
+                            (SELECT COALESCE(SUM(Amount), 0) FROM Bills) AS TotalBilled,
+                            (SELECT COALESCE(SUM(AmountPaid), 0) FROM Payments) AS TotalCollected,
+                            (SELECT COALESCE(SUM(AmountDue), 0) FROM Bills WHERE IsPaid = 0) AS Outstanding", conn))
                     {
-                        cmd.CommandType = CommandType.StoredProcedure;
-                        using (SqlDataReader reader = cmd.ExecuteReader())
+                        using (SqliteDataReader reader = cmd.ExecuteReader())
                         {
                             if (reader.Read())
                             {

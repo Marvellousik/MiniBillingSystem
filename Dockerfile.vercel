@@ -1,0 +1,38 @@
+# Stage 1: Build Frontend ClientApp
+FROM node:22-alpine AS frontend-build
+WORKDIR /app
+COPY ClientApp/package*.json ./ClientApp/
+WORKDIR /app/ClientApp
+RUN npm ci
+COPY ClientApp/ ./
+RUN npm run build
+
+# Stage 2: Build Backend .NET 10
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS backend-build
+WORKDIR /src
+COPY ["MiniBillingSystem.csproj", "./"]
+RUN dotnet restore "MiniBillingSystem.csproj"
+COPY . .
+# Copy compiled frontend assets to wwwroot
+COPY --from=frontend-build /app/ClientApp/dist /src/wwwroot
+RUN dotnet publish "MiniBillingSystem.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+# Stage 3: Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=backend-build /app/publish .
+
+# Default SQLite database path
+ENV ConnectionStrings__DefaultConnection="Data Source=/app/data/billing.db;Cache=Shared"
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV PORT=5000
+EXPOSE 5000
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=5 \
+  CMD curl -f http://localhost:${PORT:-5000}/health || exit 1
+
+ENTRYPOINT ["dotnet", "MiniBillingSystem.dll"]

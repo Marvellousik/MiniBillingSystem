@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using MiniBillingSystem.Models;
 using Xunit;
 
 namespace MiniBillingSystem.IntegrationTests
@@ -15,15 +17,18 @@ namespace MiniBillingSystem.IntegrationTests
         }
 
         [Fact]
-        public async Task HealthEndpoint_Returns_Response()
+        public async Task HealthEndpoint_Returns_Healthy_Status()
         {
             // Act
             var response = await _client.GetAsync("/health");
 
-            // Assert - Health endpoint should return structured JSON payload
-            Assert.True(response.StatusCode == HttpStatusCode.OK || response.StatusCode == HttpStatusCode.ServiceUnavailable);
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             var content = await response.Content.ReadAsStringAsync();
-            Assert.Contains("checks", content);
+            using var doc = JsonDocument.Parse(content);
+            Assert.Equal("Healthy", doc.RootElement.GetProperty("status").GetString());
+            Assert.Equal("Healthy", doc.RootElement.GetProperty("checks").GetProperty("databaseConnectivity").GetProperty("status").GetString());
+            Assert.Equal("Healthy", doc.RootElement.GetProperty("checks").GetProperty("migrations").GetProperty("status").GetString());
         }
 
         [Fact]
@@ -74,13 +79,94 @@ namespace MiniBillingSystem.IntegrationTests
         }
 
         [Fact]
-        public async Task DeleteCustomer_NonExistentCustomer_ReturnsNotFoundOrInternalServerError()
+        public async Task DeleteCustomer_NonExistentCustomer_ReturnsNotFound()
         {
             // Act
             var response = await _client.DeleteAsync("/api/customers/999999");
 
-            // Assert - Should return NotFound (404) or InternalServerError (500 if DB unreachable)
-            Assert.True(response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.InternalServerError);
+            // Assert
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task FullCustomerAndBillingLifecycle_Succeeds()
+        {
+            var uniqueEmail = $"user_{Guid.NewGuid():N}@test.com";
+
+            // 1. Create customer
+            var createRes = await _client.PostAsJsonAsync("/api/customers", new CreateCustomerRequest
+            {
+                FullName = "Integration Test User",
+                Address = "Plot 505 Test Crescent",
+                PhoneNumber = "08099887766",
+                Email = uniqueEmail
+            });
+            Assert.Equal(HttpStatusCode.OK, createRes.StatusCode);
+            var createJson = await createRes.Content.ReadFromJsonAsync<JsonElement>();
+            int customerId = createJson.GetProperty("customerID").GetInt32();
+            Assert.True(customerId > 0);
+
+            // 2. Fetch customer history
+            var getRes = await _client.GetAsync($"/api/customers/{customerId}");
+            Assert.Equal(HttpStatusCode.OK, getRes.StatusCode);
+            var customer = await getRes.Content.ReadFromJsonAsync<CustomerDetailDto>();
+            Assert.NotNull(customer);
+            Assert.Equal("Integration Test User", customer.FullName);
+            Assert.Equal(uniqueEmail, customer.Email);
+
+            // 3. Create a bill
+            var billRes = await _client.PostAsJsonAsync("/api/bills", new CreateBillRequest
+            {
+                CustomerID = customerId,
+                AmountDue = 5000.00m,
+                DueDate = "2026-12-31"
+            });
+            Assert.Equal(HttpStatusCode.OK, billRes.StatusCode);
+            var billResult = await billRes.Content.ReadFromJsonAsync<BillCreationResultDto>();
+            Assert.NotNull(billResult);
+            Assert.Equal("NO_CREDIT_APPLIED", billResult.Outcome);
+            Assert.Equal(5000.00m, billResult.FinalAmountDue);
+
+            // 4. Verify customer detail has bill
+            getRes = await _client.GetAsync($"/api/customers/{customerId}");
+            customer = await getRes.Content.ReadFromJsonAsync<CustomerDetailDto>();
+            Assert.NotNull(customer);
+            Assert.NotEmpty(customer.Bills);
+            int billId = customer.Bills[0].BillID;
+
+            // 5. Record partial payment
+            var payRes = await _client.PostAsJsonAsync("/api/payments", new RecordPaymentRequest
+            {
+                BillID = billId,
+                AmountPaid = 2000.00m,
+                PaymentMethod = "Debit Card"
+            });
+            Assert.Equal(HttpStatusCode.OK, payRes.StatusCode);
+            var payResult = await payRes.Content.ReadFromJsonAsync<PaymentResultDto>();
+            Assert.NotNull(payResult);
+            Assert.Equal("PARTIAL_PAYMENT", payResult.Outcome);
+            Assert.Equal(3000.00m, payResult.RemainingAmountDue);
+
+            // 6. Record remaining payment with overpayment
+            payRes = await _client.PostAsJsonAsync("/api/payments", new RecordPaymentRequest
+            {
+                BillID = billId,
+                AmountPaid = 4000.00m,
+                PaymentMethod = "Bank Transfer"
+            });
+            Assert.Equal(HttpStatusCode.OK, payRes.StatusCode);
+            payResult = await payRes.Content.ReadFromJsonAsync<PaymentResultDto>();
+            Assert.NotNull(payResult);
+            Assert.Equal("OVERPAYMENT", payResult.Outcome);
+            Assert.Equal(0.00m, payResult.RemainingAmountDue);
+
+            // 7. Check Summary Metrics
+            var summaryRes = await _client.GetAsync("/api/summary");
+            Assert.Equal(HttpStatusCode.OK, summaryRes.StatusCode);
+            var summary = await summaryRes.Content.ReadFromJsonAsync<SummaryDto>();
+            Assert.NotNull(summary);
+            Assert.True(summary.TotalCustomers > 0);
+            Assert.True(summary.TotalCollected > 0);
         }
     }
 }

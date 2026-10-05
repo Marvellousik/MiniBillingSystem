@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
 using MiniBillingSystem.Models;
 
 namespace MiniBillingSystem.Controllers
@@ -13,7 +13,7 @@ namespace MiniBillingSystem.Controllers
         public PaymentsController(IConfiguration configuration)
         {
             _connStr = configuration.GetConnectionString("DefaultConnection") 
-                ?? "Server=.\\SQLEXPRESS;Database=InternBillingDB;Integrated Security=True;TrustServerCertificate=True;";
+                ?? "Data Source=billing.db;Cache=Shared";
         }
 
         [HttpGet]
@@ -32,25 +32,30 @@ namespace MiniBillingSystem.Controllers
                 FROM Payments p 
                 JOIN Bills b ON p.BillID = b.BillID 
                 JOIN Customers c ON b.CustomerID = c.CustomerID
-                ORDER BY p.PaymentID DESC OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
+                ORDER BY p.PaymentID DESC LIMIT @PageSize OFFSET @Offset";
 
             try
             {
-                using var conn = new SqlConnection(_connStr);
+                using var conn = new SqliteConnection(_connStr);
                 conn.Open();
 
-                using (var countCmd = new SqlCommand(countSql, conn))
+                using (var countCmd = new SqliteCommand(countSql, conn))
                 {
                     totalCount = Convert.ToInt32(countCmd.ExecuteScalar());
                 }
 
-                using var cmd = new SqlCommand(sql, conn);
+                using var cmd = new SqliteCommand(sql, conn);
                 cmd.Parameters.AddWithValue("@Offset", offset);
                 cmd.Parameters.AddWithValue("@PageSize", pageSize);
 
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
+                    string rawDate = reader["PaymentDate"].ToString() ?? "";
+                    string formattedDate = DateTime.TryParse(rawDate, out DateTime dt) 
+                        ? dt.ToString("yyyy-MM-dd HH:mm") 
+                        : rawDate;
+
                     payments.Add(new PaymentDto
                     {
                         PaymentID = Convert.ToInt32(reader["PaymentID"]),
@@ -59,7 +64,7 @@ namespace MiniBillingSystem.Controllers
                         BillID = Convert.ToInt32(reader["BillID"]),
                         AmountPaid = Convert.ToDecimal(reader["AmountPaid"]),
                         PaymentMethod = reader["PaymentMethod"].ToString() ?? "",
-                        PaymentDate = Convert.ToDateTime(reader["PaymentDate"]).ToString("yyyy-MM-dd HH:mm")
+                        PaymentDate = formattedDate
                     });
                 }
 
@@ -95,9 +100,9 @@ namespace MiniBillingSystem.Controllers
                 return BadRequest(new { error = "Payment method cannot be left blank. Please select or enter a method." });
             }
 
-            using var conn = new SqlConnection(_connStr);
+            using var conn = new SqliteConnection(_connStr);
             conn.Open();
-            using SqlTransaction transaction = conn.BeginTransaction();
+            using SqliteTransaction transaction = conn.BeginTransaction();
 
             try
             {
@@ -105,19 +110,19 @@ namespace MiniBillingSystem.Controllers
                 int customerId = 0;
                 bool isPaid = false;
 
-                SqlCommand checkCmd = new SqlCommand(
-                    "SELECT AmountDue, CustomerID, IsPaid FROM Bills WITH (UPDLOCK) WHERE BillID = @BillID", 
+                SqliteCommand checkCmd = new SqliteCommand(
+                    "SELECT AmountDue, CustomerID, IsPaid FROM Bills WHERE BillID = @BillID", 
                     conn, 
                     transaction);
                 checkCmd.Parameters.AddWithValue("@BillID", request.BillID);
 
-                using (SqlDataReader reader = checkCmd.ExecuteReader())
+                using (SqliteDataReader reader = checkCmd.ExecuteReader())
                 {
                     if (reader.Read())
                     {
                         amountDue = Convert.ToDecimal(reader["AmountDue"]);
                         customerId = Convert.ToInt32(reader["CustomerID"]);
-                        isPaid = Convert.ToBoolean(reader["IsPaid"]);
+                        isPaid = Convert.ToInt32(reader["IsPaid"]) == 1;
                     }
                     else
                     {
@@ -133,7 +138,7 @@ namespace MiniBillingSystem.Controllers
                 }
 
                 // Record initial payment entry
-                SqlCommand insertCmd = new SqlCommand(
+                SqliteCommand insertCmd = new SqliteCommand(
                     "INSERT INTO Payments (BillID, AmountPaid, PaymentMethod) VALUES (@BillID, @Amount, @Method)", 
                     conn, 
                     transaction);
@@ -148,7 +153,7 @@ namespace MiniBillingSystem.Controllers
 
                 if (request.AmountPaid >= amountDue)
                 {
-                    SqlCommand updateBillCmd = new SqlCommand(
+                    SqliteCommand updateBillCmd = new SqliteCommand(
                         "UPDATE Bills SET IsPaid = 1, AmountDue = 0, Status = 'Paid' WHERE BillID = @BillID", 
                         conn, 
                         transaction);
@@ -158,7 +163,7 @@ namespace MiniBillingSystem.Controllers
                     decimal overpayment = request.AmountPaid - amountDue;
                     if (overpayment > 0)
                     {
-                        SqlCommand creditCmd = new SqlCommand(
+                        SqliteCommand creditCmd = new SqliteCommand(
                             "UPDATE Customers SET AccountBalance = AccountBalance + @Overpayment WHERE CustomerID = @CustID", 
                             conn, 
                             transaction);
@@ -179,7 +184,7 @@ namespace MiniBillingSystem.Controllers
                 else
                 {
                     remainingBalance = amountDue - request.AmountPaid;
-                    SqlCommand updatePartialCmd = new SqlCommand(
+                    SqliteCommand updatePartialCmd = new SqliteCommand(
                         "UPDATE Bills SET AmountDue = @Remaining, IsPaid = 0, Status = 'PartiallyPaid' WHERE BillID = @BillID", 
                         conn, 
                         transaction);
@@ -218,13 +223,13 @@ namespace MiniBillingSystem.Controllers
         /// <summary>
         /// Automatically reconciles available customer account credit against any outstanding unpaid bills.
         /// </summary>
-        public static int ReconcileCustomerCreditAndBills(int customerId, SqlConnection conn, SqlTransaction transaction)
+        public static int ReconcileCustomerCreditAndBills(int customerId, SqliteConnection conn, SqliteTransaction transaction)
         {
             int autoSettledCount = 0;
 
             // 1. Get current AccountBalance for Customer
-            SqlCommand balanceCmd = new SqlCommand(
-                "SELECT AccountBalance FROM Customers WITH (UPDLOCK) WHERE CustomerID = @CustID", 
+            SqliteCommand balanceCmd = new SqliteCommand(
+                "SELECT AccountBalance FROM Customers WHERE CustomerID = @CustID", 
                 conn, 
                 transaction);
             balanceCmd.Parameters.AddWithValue("@CustID", customerId);
@@ -236,12 +241,12 @@ namespace MiniBillingSystem.Controllers
 
             // 2. Fetch all unpaid bills for this customer ordered by DueDate ASC, BillID ASC
             string unpaidBillsSql = @"
-                SELECT BillID, AmountDue FROM Bills WITH (UPDLOCK) 
+                SELECT BillID, AmountDue FROM Bills 
                 WHERE CustomerID = @CustID AND IsPaid = 0 
                 ORDER BY DueDate ASC, BillID ASC";
 
             var unpaidBills = new List<(int BillID, decimal AmountDue)>();
-            using (var billsCmd = new SqlCommand(unpaidBillsSql, conn, transaction))
+            using (var billsCmd = new SqliteCommand(unpaidBillsSql, conn, transaction))
             {
                 billsCmd.Parameters.AddWithValue("@CustID", customerId);
                 using var reader = billsCmd.ExecuteReader();
@@ -263,7 +268,7 @@ namespace MiniBillingSystem.Controllers
                     credit -= appliedAmount;
 
                     // Mark bill fully paid
-                    SqlCommand payBillCmd = new SqlCommand(
+                    SqliteCommand payBillCmd = new SqliteCommand(
                         "UPDATE Bills SET IsPaid = 1, AmountDue = 0, Status = 'Paid' WHERE BillID = @BillID", 
                         conn, 
                         transaction);
@@ -279,7 +284,7 @@ namespace MiniBillingSystem.Controllers
                     credit = 0;
 
                     // Update partial bill balance
-                    SqlCommand partialCmd = new SqlCommand(
+                    SqliteCommand partialCmd = new SqliteCommand(
                         "UPDATE Bills SET AmountDue = @NewRemaining, IsPaid = 0, Status = 'PartiallyPaid' WHERE BillID = @BillID", 
                         conn, 
                         transaction);
@@ -289,7 +294,7 @@ namespace MiniBillingSystem.Controllers
                 }
 
                 // Record auto-reconciliation payment entry
-                SqlCommand autoPayCmd = new SqlCommand(
+                SqliteCommand autoPayCmd = new SqliteCommand(
                     "INSERT INTO Payments (BillID, AmountPaid, PaymentMethod) VALUES (@BillID, @Amount, 'Account Credit Auto-Reconciliation')", 
                     conn, 
                     transaction);
@@ -299,7 +304,7 @@ namespace MiniBillingSystem.Controllers
             }
 
             // 4. Update final customer AccountBalance
-            SqlCommand updateCustCmd = new SqlCommand(
+            SqliteCommand updateCustCmd = new SqliteCommand(
                 "UPDATE Customers SET AccountBalance = @FinalCredit WHERE CustomerID = @CustID", 
                 conn, 
                 transaction);

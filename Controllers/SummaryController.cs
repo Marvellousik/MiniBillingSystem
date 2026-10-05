@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
 using MiniBillingSystem.Models;
 
 namespace MiniBillingSystem.Controllers
@@ -13,7 +13,7 @@ namespace MiniBillingSystem.Controllers
         public SummaryController(IConfiguration configuration)
         {
             _connStr = configuration.GetConnectionString("DefaultConnection") 
-                ?? "Server=.\\SQLEXPRESS;Database=InternBillingDB;Integrated Security=True;TrustServerCertificate=True;";
+                ?? "Data Source=billing.db;Cache=Shared";
         }
 
         [HttpGet]
@@ -21,7 +21,7 @@ namespace MiniBillingSystem.Controllers
         {
             try
             {
-                using var conn = new SqlConnection(_connStr);
+                using var conn = new SqliteConnection(_connStr);
                 conn.Open();
 
                 int totalCustomers = 0;
@@ -29,25 +29,25 @@ namespace MiniBillingSystem.Controllers
                 int billsDueThisWeek = 0;
                 decimal totalCollected = 0;
 
-                using (var cmd = new SqlCommand("SELECT COUNT(*) FROM Customers", conn))
+                using (var cmd = new SqliteCommand("SELECT COUNT(*) FROM Customers", conn))
                 {
                     totalCustomers = Convert.ToInt32(cmd.ExecuteScalar());
                 }
 
-                using (var cmd = new SqlCommand("SELECT ISNULL(SUM(AmountDue), 0) FROM Bills WHERE IsPaid = 0", conn))
+                using (var cmd = new SqliteCommand("SELECT COALESCE(SUM(AmountDue), 0) FROM Bills WHERE IsPaid = 0", conn))
                 {
                     totalOutstanding = Convert.ToDecimal(cmd.ExecuteScalar());
                 }
 
                 // Bills due between today and 7 days from now (unpaid)
-                using (var cmd = new SqlCommand(@"
+                using (var cmd = new SqliteCommand(@"
                     SELECT COUNT(*) FROM Bills 
-                    WHERE IsPaid = 0 AND DueDate >= CAST(GETDATE() AS DATE) AND DueDate <= DATEADD(day, 7, CAST(GETDATE() AS DATE))", conn))
+                    WHERE IsPaid = 0 AND date(DueDate) >= date('now') AND date(DueDate) <= date('now', '+7 days')", conn))
                 {
                     billsDueThisWeek = Convert.ToInt32(cmd.ExecuteScalar());
                 }
 
-                using (var cmd = new SqlCommand("SELECT ISNULL(SUM(AmountPaid), 0) FROM Payments", conn))
+                using (var cmd = new SqliteCommand("SELECT COALESCE(SUM(AmountPaid), 0) FROM Payments", conn))
                 {
                     totalCollected = Convert.ToDecimal(cmd.ExecuteScalar());
                 }
