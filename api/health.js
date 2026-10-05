@@ -1,6 +1,8 @@
-const { getDb, query } = require('./_db.js');
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { getDb, query } = require('./_db.cjs');
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   try {
     const db = await getDb();
     const tables = query(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
@@ -18,4 +20,4 @@ module.exports = async function handler(req, res) {
       error: err.message
     });
   }
-};
+}

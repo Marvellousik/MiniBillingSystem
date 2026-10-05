@@ -1,6 +1,8 @@
-const { getDb, query, get, run } = require('../_db.js');
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { getDb, query, get, run } = require('../_db.cjs');
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const db = await getDb();
   const id = parseInt(req.query.id, 10);
 
@@ -65,7 +67,7 @@ module.exports = async function handler(req, res) {
       });
     } catch (err) {
       console.error('Error fetching customer by id:', err);
-      return res.status(500).json({ error: "Sorry, we ran into an issue pulling up this customer's dashboard." });
+      return res.status(500).json({ error: err.message || "Sorry, we ran into an issue pulling up this customer's dashboard." });
     }
   }
 
@@ -107,7 +109,7 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ message: 'Customer updated successfully.' });
     } catch (err) {
       console.error('Error updating customer:', err);
-      return res.status(500).json({ error: 'Failed to update customer.' });
+      return res.status(500).json({ error: err.message || 'Failed to update customer.' });
     }
   }
 
@@ -123,7 +125,6 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'Cannot delete customer with active unpaid bills.' });
       }
 
-      // Delete payments for customer's bills, then bills, then customer
       run(db, `
         DELETE FROM Payments WHERE BillID IN (SELECT BillID FROM Bills WHERE CustomerID = :id)
       `, { ':id': id });
@@ -133,9 +134,9 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ message: 'Customer deleted successfully.' });
     } catch (err) {
       console.error('Error deleting customer:', err);
-      return res.status(500).json({ error: 'Failed to delete customer.' });
+      return res.status(500).json({ error: err.message || 'Failed to delete customer.' });
     }
   }
 
   return res.status(405).json({ error: 'Method Not Allowed' });
-};
+}

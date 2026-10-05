@@ -1,6 +1,8 @@
-const { getDb, get } = require('./_db.js');
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { getDb, get } = require('./_db.cjs');
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -24,6 +26,6 @@ module.exports = async function handler(req, res) {
     });
   } catch (err) {
     console.error('Error fetching summary:', err);
-    return res.status(500).json({ error: 'Unable to load summary metrics right now.' });
+    return res.status(500).json({ error: err.message || 'Unable to load summary metrics right now.' });
   }
-};
+}

@@ -1,2 +1,2 @@
-const healthHandler = require('./health.js');
-module.exports = healthHandler;
+import healthHandler from './health.js';
+export default healthHandler;

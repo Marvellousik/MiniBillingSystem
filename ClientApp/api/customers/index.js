@@ -1,6 +1,8 @@
-const { getDb, query, get, run } = require('../_db.js');
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { getDb, query, get, run } = require('../_db.cjs');
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const db = await getDb();
 
   if (req.method === 'GET') {
@@ -56,7 +58,7 @@ module.exports = async function handler(req, res) {
       });
     } catch (err) {
       console.error('Error fetching customers:', err);
-      return res.status(500).json({ error: "Oops! We couldn't load the customer list right now." });
+      return res.status(500).json({ error: err.message || "Oops! We couldn't load the customer list right now." });
     }
   }
 
@@ -96,12 +98,12 @@ module.exports = async function handler(req, res) {
       });
     } catch (err) {
       console.error('Error creating customer:', err);
-      return res.status(500).json({ error: 'Failed to create customer.' });
+      return res.status(500).json({ error: err.message || 'Failed to create customer.' });
     }
   }
 
   return res.status(405).json({ error: 'Method Not Allowed' });
-};
+}
 
 function handleGetCustomerById(db, id, res) {
   try {
@@ -161,6 +163,6 @@ function handleGetCustomerById(db, id, res) {
     });
   } catch (err) {
     console.error('Error fetching customer by id:', err);
-    return res.status(500).json({ error: "Sorry, we ran into an issue pulling up this customer's dashboard." });
+    return res.status(500).json({ error: err.message || "Sorry, we ran into an issue pulling up this customer's dashboard." });
   }
 }

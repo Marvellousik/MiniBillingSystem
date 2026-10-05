@@ -2,6 +2,7 @@
   "name": "minibillingsystem",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "cd ClientApp && npm install && npm run build && node -e \"require('fs').cpSync('dist', '../dist', {recursive: true})\"",
     "test": "dotnet test",

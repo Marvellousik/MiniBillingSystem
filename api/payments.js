@@ -1,6 +1,8 @@
-const { getDb, query, get, run } = require('./_db.js');
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { getDb, query, get, run } = require('./_db.cjs');
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const db = await getDb();
 
   if (req.method === 'GET') {
@@ -42,7 +44,7 @@ module.exports = async function handler(req, res) {
       });
     } catch (err) {
       console.error('Error fetching payments:', err);
-      return res.status(500).json({ error: "Oops! We couldn't load the payment history right now." });
+      return res.status(500).json({ error: err.message || "Oops! We couldn't load the payment history right now." });
     }
   }
 
@@ -107,9 +109,9 @@ module.exports = async function handler(req, res) {
       });
     } catch (err) {
       console.error('Error recording payment:', err);
-      return res.status(500).json({ error: 'An issue occurred while recording the payment.' });
+      return res.status(500).json({ error: err.message || 'An issue occurred while recording the payment.' });
     }
   }
 
   return res.status(405).json({ error: 'Method Not Allowed' });
-};
+}
