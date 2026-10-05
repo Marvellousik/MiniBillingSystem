@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "cd ClientApp && npm install && npm run build",
+    "build": "cd ClientApp && npm install && npm run build && node -e \"require('fs').cpSync('dist', '../dist', {recursive: true})\"",
     "test": "dotnet test",
     "test:e2e": "cd tests/e2e && npm test"
   },
